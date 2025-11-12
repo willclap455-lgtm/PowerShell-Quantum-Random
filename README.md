@@ -38,6 +38,18 @@ Include metadata from the underlying CURBy pulse:
 Get-CurbyRandomNumber -Min 10 -Max 99 -Count 3 -IncludeMetadata
 ```
 
+Use a random CURBy chain for each value:
+
+```powershell
+Get-CurbyRandomNumber -Min 1 -Max 100 -Count 5 -RandomChainId
+```
+
+Lock to a specific chain while sampling pulses at random:
+
+```powershell
+Get-CurbyRandomNumber -Min 1 -Max 100 -Count 5 -RandomChainId -ChainId 'bafyriqci6f3st2mg7gq733ho4zvvth32zpy2mtiylixwmhoz6d627eo3jfpmbxepe54u2zdvymonq5sp3armtm4rodxsynsirr5g3xsbd3q4s'
+```
+
 Example response with `-IncludeMetadata`:
 
 ```
