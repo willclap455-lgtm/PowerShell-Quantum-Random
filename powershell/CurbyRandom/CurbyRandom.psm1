@@ -82,7 +82,7 @@ function Get-CurbyRandomNumber {
         }
 
         $offset = [BigInteger]::Remainder($candidate, $rangeValue)
-        $results.Add($Min + [System.Convert]::ToInt64($offset))
+        $results.Add($Min + [long]$offset)
     }
 
     Resolve-Output -Values $results -Metadata ([pscustomobject]@{
