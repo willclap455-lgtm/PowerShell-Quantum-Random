@@ -224,6 +224,7 @@ function Get-Entropy {
         [byte[]]$Seed,
 
         [Parameter(Mandatory)]
+        [AllowEmptyCollection()]
         [List[byte]]$Buffer,
 
         [Parameter(Mandatory)]
