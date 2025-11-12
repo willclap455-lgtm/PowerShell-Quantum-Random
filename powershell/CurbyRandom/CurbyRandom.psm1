@@ -33,6 +33,8 @@ function Get-CurbyRandomNumber {
         [ValidateNotNullOrEmpty()]
         [string]$ChainId = 'bafyriqci6f3st2mg7gq733ho4zvvth32zpy2mtiylixwmhoz6d627eo3jfpmbxepe54u2zdvymonq5sp3armtm4rodxsynsirr5g3xsbd3q4s',
 
+        [switch]$RandomChainId,
+
         [switch]$IncludeMetadata
     )
 
@@ -41,7 +43,16 @@ function Get-CurbyRandomNumber {
     }
 
     $normalisedBaseUri = $BaseUri.TrimEnd('/')
-    $seedInfos = @(Get-CurbySeed -BaseUri $normalisedBaseUri -ChainId $ChainId -Count $Count)
+    $chainParameterWasBound = $PSBoundParameters.ContainsKey('ChainId')
+    if ($RandomChainId) {
+        if ($chainParameterWasBound) {
+            $seedInfos = @(Select-RandomSeedsFromSingleChain -BaseUri $normalisedBaseUri -ChainId $ChainId -Count $Count)
+        } else {
+            $seedInfos = @(Select-RandomSeedsAcrossChains -BaseUri $normalisedBaseUri -Count $Count)
+        }
+    } else {
+        $seedInfos = @(Get-CurbySeed -BaseUri $normalisedBaseUri -ChainId $ChainId -Count $Count)
+    }
 
     if (-not $seedInfos -or $seedInfos.Count -eq 0) {
         throw "Unable to obtain entropy seeds from $normalisedBaseUri."
@@ -248,6 +259,177 @@ function Get-CurbySeed {
     }
 
     $seeds
+}
+
+function Resolve-CurbyCidValue {
+    [CmdletBinding()]
+    param(
+        [AllowNull()]
+        [object]$Value
+    )
+
+    if (-not $Value) {
+        return $null
+    }
+
+    if ($Value -is [string]) {
+        return $Value
+    }
+
+    $slashProperty = $Value.PSObject.Properties['/']
+    if ($slashProperty -and $slashProperty.Value) {
+        return [string]$slashProperty.Value
+    }
+
+    return $Value.ToString()
+}
+
+function Get-CurbyChainCatalog {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)]
+        [string]$BaseUri
+    )
+
+    $uri = '{0}/chains' -f $BaseUri
+
+    try {
+        $response = Invoke-RestMethod -Uri $uri -Method Get -ErrorAction Stop
+    } catch {
+        throw "Failed to call CURBy API ($uri): $($_.Exception.Message)"
+    }
+
+    if (-not $response) {
+        throw 'CURBy API returned no chain metadata.'
+    }
+
+    $rawChains = if ($response -is [System.Array]) {
+        $response
+    } elseif ($response.chains) {
+        $response.chains
+    } elseif ($response.items) {
+        $response.items
+    } else {
+        @($response)
+    }
+
+    if (-not $rawChains -or $rawChains.Count -eq 0) {
+        throw 'CURBy API did not include any chain entries.'
+    }
+
+    $chains = [List[pscustomobject]]::new()
+    foreach ($chain in $rawChains) {
+        $chainId = $null
+
+        if ($chain.cid) {
+            $chainId = Resolve-CurbyCidValue -Value $chain.cid
+        }
+
+        if (-not $chainId -and $chain.data -and $chain.data.cid) {
+            $chainId = Resolve-CurbyCidValue -Value $chain.data.cid
+        }
+
+        if (-not $chainId -and $chain.data -and $chain.data.chainCid) {
+            $chainId = Resolve-CurbyCidValue -Value $chain.data.chainCid
+        }
+
+        if ($chainId) {
+            $chains.Add([pscustomobject]@{
+                    ChainId  = $chainId
+                    Metadata = $chain
+                })
+        }
+    }
+
+    if ($chains.Count -eq 0) {
+        throw 'CURBy API response did not include resolvable chain identifiers.'
+    }
+
+    return $chains
+}
+
+function Select-RandomSeedsFromSingleChain {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)]
+        [string]$BaseUri,
+
+        [Parameter(Mandatory)]
+        [string]$ChainId,
+
+        [Parameter(Mandatory)]
+        [ValidateRange(1, 1024)]
+        [int]$Count
+    )
+
+    $poolRequestCount = [System.Math]::Min([System.Math]::Max($Count * 4, 32), 1024)
+    $seedPool = @(Get-CurbySeed -BaseUri $BaseUri -ChainId $ChainId -Count $poolRequestCount)
+
+    if (-not $seedPool -or $seedPool.Count -eq 0) {
+        throw "Unable to obtain entropy seeds from $BaseUri for chain $ChainId."
+    }
+
+    $selectedSeeds = [List[pscustomobject]]::new()
+
+    for ($i = 0; $i -lt $Count; $i++) {
+        $randomIndex = Get-Random -Minimum 0 -Maximum $seedPool.Count
+        $selectedSeeds.Add($seedPool[$randomIndex])
+    }
+
+    return $selectedSeeds
+}
+
+function Select-RandomSeedsAcrossChains {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)]
+        [string]$BaseUri,
+
+        [Parameter(Mandatory)]
+        [ValidateRange(1, 1024)]
+        [int]$Count
+    )
+
+    $chains = @(Get-CurbyChainCatalog -BaseUri $BaseUri)
+    if (-not $chains -or $chains.Count -eq 0) {
+        throw "CURBy API did not return any chains from $BaseUri."
+    }
+
+    $selectedChainIds = [List[string]]::new()
+    for ($i = 0; $i -lt $Count; $i++) {
+        $randomChainIndex = Get-Random -Minimum 0 -Maximum $chains.Count
+        $selectedChainIds.Add($chains[$randomChainIndex].ChainId)
+    }
+
+    $requirements = @{}
+    foreach ($chainId in $selectedChainIds) {
+        if ($requirements.ContainsKey($chainId)) {
+            $requirements[$chainId]++
+        } else {
+            $requirements[$chainId] = 1
+        }
+    }
+
+    $seedPools = @{}
+    foreach ($chainId in $requirements.Keys) {
+        $requiredCount = $requirements[$chainId]
+        $poolRequestCount = [System.Math]::Min([System.Math]::Max($requiredCount * 4, 32), 1024)
+        $pool = @(Get-CurbySeed -BaseUri $BaseUri -ChainId $chainId -Count $poolRequestCount)
+        if (-not $pool -or $pool.Count -eq 0) {
+            throw "Unable to obtain entropy seeds from $BaseUri for chain $chainId."
+        }
+        $seedPools[$chainId] = $pool
+    }
+
+    $selectedSeeds = [List[pscustomobject]]::new()
+    for ($i = 0; $i -lt $Count; $i++) {
+        $chainId = $selectedChainIds[$i]
+        $pool = $seedPools[$chainId]
+        $randomIndex = Get-Random -Minimum 0 -Maximum $pool.Count
+        $selectedSeeds.Add($pool[$randomIndex])
+    }
+
+    return $selectedSeeds
 }
 
 function Convert-FromBase64Unpadded {
