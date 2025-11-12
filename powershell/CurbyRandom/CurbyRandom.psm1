@@ -74,7 +74,13 @@ function Get-CurbyRandomNumber {
 
         while ($true) {
             $entropy = Get-Entropy -Seed $seed -Buffer $buffer -Counter ([ref]$counter) -ByteCount $byteCount
-            $candidate = Convert-BytesToBigInteger -Input $entropy
+            $entropyBytes = [byte[]]@($entropy)
+
+            if ($entropyBytes.Length -eq 0) {
+                throw 'Unable to derive entropy bytes for random candidate.'
+            }
+
+            $candidate = $entropyBytes | Convert-BytesToBigInteger
 
             if ($candidate -lt $threshold) {
                 break
@@ -257,15 +263,21 @@ function Get-Entropy {
 function Convert-BytesToBigInteger {
     [CmdletBinding()]
     param(
-        [Parameter(Mandatory)]
-        [byte[]]$Input
+        [Parameter(Mandatory, ValueFromPipeline = $true)]
+        [byte]$Byte
     )
 
-    $result = [BigInteger]::Zero
-    foreach ($byte in $Input) {
-        $result = ($result * 256) + $byte
+    begin {
+        $result = [BigInteger]::Zero
     }
-    return $result
+
+    process {
+        $result = ($result * 256) + $Byte
+    }
+
+    end {
+        return $result
+    }
 }
 
 Export-ModuleMember -Function Get-CurbyRandomNumber
