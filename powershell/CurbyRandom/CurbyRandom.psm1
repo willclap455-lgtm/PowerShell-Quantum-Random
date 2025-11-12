@@ -41,10 +41,23 @@ function Get-CurbyRandomNumber {
     }
 
     $normalisedBaseUri = $BaseUri.TrimEnd('/')
-    $seedInfos = Get-CurbySeed -BaseUri $normalisedBaseUri -ChainId $ChainId -Count $Count
+    $seedInfos = @(Get-CurbySeed -BaseUri $normalisedBaseUri -ChainId $ChainId -Count $Count)
 
-    if (-not $seedInfos -or $seedInfos.Count -lt $Count) {
-        throw "Unable to obtain enough entropy seeds from $normalisedBaseUri."
+    if (-not $seedInfos -or $seedInfos.Count -eq 0) {
+        throw "Unable to obtain entropy seeds from $normalisedBaseUri."
+    }
+
+    $seedStates = [List[pscustomobject]]::new()
+    foreach ($seedInfo in $seedInfos) {
+        $seedStates.Add([pscustomobject]@{
+                Info    = $seedInfo
+                Buffer  = [List[byte]]::new()
+                Counter = [ref]([UInt64]0)
+            })
+    }
+
+    if ($seedStates.Count -eq 0) {
+        throw "Unable to initialise entropy buffers for seeds returned from $normalisedBaseUri."
     }
 
     $rangeValue = [BigInteger]::Parse((($Max - $Min) + 1).ToString())
@@ -54,7 +67,7 @@ function Get-CurbyRandomNumber {
     if ($rangeValue -eq [BigInteger]::One) {
         for ($i = 0; $i -lt $Count; $i++) {
             $results.Add($Min)
-            $currentSeed = $seedInfos[$i]
+            $currentSeed = $seedStates[$i % $seedStates.Count].Info
             $metadataEntries.Add([pscustomobject]@{
                     ChainId   = $currentSeed.ChainId
                     Index     = $currentSeed.Index
@@ -69,20 +82,20 @@ function Get-CurbyRandomNumber {
     $maxValue = Get-MaxValueForByteCount -ByteCount $byteCount
     $threshold = $maxValue - ($maxValue % $rangeValue)
 
-    while ($results.Count -lt $Count) {
-        $seedInfo = $seedInfos[$results.Count]
+    for ($i = 0; $i -lt $Count; $i++) {
+        $stateIndex = $i % $seedStates.Count
+        $state = $seedStates[$stateIndex]
+        $seedInfo = $state.Info
         $seed = $seedInfo.Bytes
 
         if (-not $seed -or $seed.Length -eq 0) {
             throw "Unable to obtain entropy seed from $normalisedBaseUri."
         }
 
-        $buffer = [List[byte]]::new()
-        $counter = [uint64]0
         $candidate = [BigInteger]::Zero
 
         while ($true) {
-            $entropyBytes = Get-Entropy -Seed $seed -Buffer $buffer -Counter ([ref]$counter) -ByteCount $byteCount
+            $entropyBytes = Get-Entropy -Seed $seed -Buffer $state.Buffer -Counter $state.Counter -ByteCount $byteCount
 
             if (-not $entropyBytes -or $entropyBytes.Length -eq 0) {
                 throw 'Unable to derive entropy bytes for random candidate.'
