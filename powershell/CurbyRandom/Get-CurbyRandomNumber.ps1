@@ -310,8 +310,8 @@ function Get-CurbySeed {
 
         $chainCid = $null
         $chainCidCandidates = @(
-            Get-CurbyNestedValue -InputObject $pulse -PropertyPath @('data', 'chainCid'),
-            Get-CurbyNestedValue -InputObject $pulse -PropertyPath @('data', 'content', 'chainCid'),
+            Get-CurbyNestedValue -InputObject $pulse -PropertyPath @('data', 'chainCid');
+            Get-CurbyNestedValue -InputObject $pulse -PropertyPath @('data', 'content', 'chainCid');
             Get-CurbyNestedValue -InputObject $pulse -PropertyPath @('data', 'content', 'chain')
         )
 
@@ -417,10 +417,10 @@ function Get-CurbyChainCatalog {
         $chainId = $null
 
         $chainCidCandidates = @(
-            Get-CurbyNestedValue -InputObject $chain -PropertyPath @('cid'),
-            Get-CurbyNestedValue -InputObject $chain -PropertyPath @('data', 'cid'),
-            Get-CurbyNestedValue -InputObject $chain -PropertyPath @('data', 'chainCid'),
-            Get-CurbyNestedValue -InputObject $chain -PropertyPath @('data', 'content', 'chainCid'),
+            Get-CurbyNestedValue -InputObject $chain -PropertyPath @('cid');
+            Get-CurbyNestedValue -InputObject $chain -PropertyPath @('data', 'cid');
+            Get-CurbyNestedValue -InputObject $chain -PropertyPath @('data', 'chainCid');
+            Get-CurbyNestedValue -InputObject $chain -PropertyPath @('data', 'content', 'chainCid');
             Get-CurbyNestedValue -InputObject $chain -PropertyPath @('data', 'content', 'chain')
         )
 
