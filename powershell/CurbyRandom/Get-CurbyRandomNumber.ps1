@@ -1,6 +1,3 @@
-# Set strict mode to catch common issues when this script is dot-sourced.
-Set-StrictMode -Version Latest
-
 <#
 .SYNOPSIS
 Gets one or more random numbers sourced from the CURBy randomness beacon.
@@ -17,6 +14,9 @@ https://random.colorado.edu
 
 using namespace System.Collections.Generic
 using namespace System.Numerics
+
+# Set strict mode to catch common issues when this script is dot-sourced.
+Set-StrictMode -Version Latest
 
 function Get-CurbyRandomNumber {
     [CmdletBinding()]
