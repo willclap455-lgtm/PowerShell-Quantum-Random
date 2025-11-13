@@ -416,16 +416,20 @@ function Get-CurbyChainCatalog {
     foreach ($chain in $rawChains) {
         $chainId = $null
 
-        if ($chain.cid) {
-            $chainId = Resolve-CurbyCidValue -Value $chain.cid
-        }
+        $chainCidCandidates = @(
+            Get-CurbyNestedValue -InputObject $chain -PropertyPath @('cid'),
+            Get-CurbyNestedValue -InputObject $chain -PropertyPath @('data', 'cid'),
+            Get-CurbyNestedValue -InputObject $chain -PropertyPath @('data', 'chainCid'),
+            Get-CurbyNestedValue -InputObject $chain -PropertyPath @('data', 'content', 'chainCid'),
+            Get-CurbyNestedValue -InputObject $chain -PropertyPath @('data', 'content', 'chain')
+        )
 
-        if (-not $chainId -and $chain.data -and $chain.data.cid) {
-            $chainId = Resolve-CurbyCidValue -Value $chain.data.cid
-        }
-
-        if (-not $chainId -and $chain.data -and $chain.data.chainCid) {
-            $chainId = Resolve-CurbyCidValue -Value $chain.data.chainCid
+        foreach ($candidate in $chainCidCandidates) {
+            $resolvedCandidate = Resolve-CurbyCidValue -Value $candidate
+            if ($resolvedCandidate) {
+                $chainId = $resolvedCandidate
+                break
+            }
         }
 
         if ($chainId) {
