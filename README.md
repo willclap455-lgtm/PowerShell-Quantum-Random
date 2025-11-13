@@ -69,3 +69,15 @@ Value PulseIndex Timestamp               ChainId
 
 The default chain identifier corresponds to the CURBy RNG chain (version 1.0.x).
 You can override `-ChainId` or `-BaseUri` to target different Twine-compatible sources.
+
+## Verification
+
+After importing the module, you can run a multi-sample check to confirm that
+entropy expansion works for larger batches:
+
+```powershell
+Get-CurbyRandomNumber -Min 5 -Max 15 -Count 25 -IncludeMetadata
+```
+
+The command should return 25 entries without errors. If the request fails, ensure
+that PowerShell can reach `https://random.colorado.edu` and rerun the command.
