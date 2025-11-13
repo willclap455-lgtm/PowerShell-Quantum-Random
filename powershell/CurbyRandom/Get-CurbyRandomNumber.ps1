@@ -12,9 +12,6 @@ enough entropy for the requested amount of numbers.
 https://random.colorado.edu
 #>
 
-using namespace System.Collections.Generic
-using namespace System.Numerics
-
 # Set strict mode to catch common issues when this script is dot-sourced.
 Set-StrictMode -Version Latest
 
@@ -61,11 +58,11 @@ function Get-CurbyRandomNumber {
         throw "Unable to obtain entropy seeds from $normalisedBaseUri."
     }
 
-    $seedStates = [List[pscustomobject]]::new()
+    $seedStates = [System.Collections.Generic.List[pscustomobject]]::new()
     foreach ($seedInfo in $seedInfos) {
         $seedStates.Add([pscustomobject]@{
                 Info    = $seedInfo
-                Buffer  = [Queue[byte]]::new()
+                Buffer  = [System.Collections.Generic.Queue[byte]]::new()
                 Counter = [ref]([UInt64]0)
             })
     }
@@ -74,11 +71,11 @@ function Get-CurbyRandomNumber {
         throw "Unable to initialise entropy buffers for seeds returned from $normalisedBaseUri."
     }
 
-    $rangeValue = [BigInteger]::Parse((($Max - $Min) + 1).ToString())
-    $results = [List[long]]::new()
-    $metadataEntries = [List[pscustomobject]]::new()
+    $rangeValue = [System.Numerics.BigInteger]::Parse((($Max - $Min) + 1).ToString())
+    $results = [System.Collections.Generic.List[long]]::new()
+    $metadataEntries = [System.Collections.Generic.List[pscustomobject]]::new()
 
-    if ($rangeValue -eq [BigInteger]::One) {
+    if ($rangeValue -eq [System.Numerics.BigInteger]::One) {
         for ($i = 0; $i -lt $Count; $i++) {
             $results.Add($Min)
             $currentSeed = $seedStates[$i % $seedStates.Count].Info
@@ -106,7 +103,7 @@ function Get-CurbyRandomNumber {
             throw "Unable to obtain entropy seed from $normalisedBaseUri."
         }
 
-        $candidate = [BigInteger]::Zero
+        $candidate = [System.Numerics.BigInteger]::Zero
 
         while ($true) {
             $entropyBytesRaw = Get-Entropy -Seed $seed -Buffer $state.Buffer -Counter $state.Counter -ByteCount $byteCount
@@ -128,7 +125,7 @@ function Get-CurbyRandomNumber {
             }
         }
 
-        $offset = [BigInteger]::Remainder($candidate, $rangeValue)
+        $offset = [System.Numerics.BigInteger]::Remainder($candidate, $rangeValue)
         $results.Add($Min + [long]$offset)
         $metadataEntries.Add([pscustomobject]@{
                 ChainId   = $seedInfo.ChainId
@@ -144,10 +141,10 @@ function Resolve-Output {
     [CmdletBinding()]
     param(
         [Parameter(Mandatory)]
-        [List[long]]$Values,
+        [System.Collections.Generic.List[long]]$Values,
 
         [Parameter(Mandatory)]
-        [List[pscustomobject]]$Metadata,
+        [System.Collections.Generic.List[pscustomobject]]$Metadata,
 
         [switch]$IncludeMetadata
     )
@@ -273,7 +270,7 @@ function Get-CurbySeed {
         throw 'CURBy API did not return any pulses.'
     }
 
-    $seeds = [List[pscustomobject]]::new()
+    $seeds = [System.Collections.Generic.List[pscustomobject]]::new()
     $limit = [System.Math]::Min($Count, $pulses.Count)
 
     for ($i = 0; $i -lt $limit; $i++) {
@@ -412,7 +409,7 @@ function Get-CurbyChainCatalog {
         throw 'CURBy API did not include any chain entries.'
     }
 
-    $chains = [List[pscustomobject]]::new()
+    $chains = [System.Collections.Generic.List[pscustomobject]]::new()
     foreach ($chain in $rawChains) {
         $chainId = $null
 
@@ -468,7 +465,7 @@ function Select-RandomSeedsFromSingleChain {
         throw "Unable to obtain entropy seeds from $BaseUri for chain $ChainId."
     }
 
-    $selectedSeeds = [List[pscustomobject]]::new()
+    $selectedSeeds = [System.Collections.Generic.List[pscustomobject]]::new()
 
     for ($i = 0; $i -lt $Count; $i++) {
         $randomIndex = Get-Random -Minimum 0 -Maximum $seedPool.Count
@@ -494,7 +491,7 @@ function Select-RandomSeedsAcrossChains {
         throw "CURBy API did not return any chains from $BaseUri."
     }
 
-    $selectedChainIds = [List[string]]::new()
+    $selectedChainIds = [System.Collections.Generic.List[string]]::new()
     for ($i = 0; $i -lt $Count; $i++) {
         $randomChainIndex = Get-Random -Minimum 0 -Maximum $chains.Count
         $selectedChainIds.Add($chains[$randomChainIndex].ChainId)
@@ -520,7 +517,7 @@ function Select-RandomSeedsAcrossChains {
         $seedPools[$chainId] = $pool
     }
 
-    $selectedSeeds = [List[pscustomobject]]::new()
+    $selectedSeeds = [System.Collections.Generic.List[pscustomobject]]::new()
     for ($i = 0; $i -lt $Count; $i++) {
         $chainId = $selectedChainIds[$i]
         $pool = $seedPools[$chainId]
@@ -555,11 +552,11 @@ function Get-ByteRequirement {
     [CmdletBinding()]
     param(
         [Parameter(Mandatory)]
-        [BigInteger]$Range
+        [System.Numerics.BigInteger]$Range
     )
 
     $byteCount = 1
-    $capacity = [BigInteger]::One * 256
+    $capacity = [System.Numerics.BigInteger]::One * 256
 
     while ($capacity -lt $Range) {
         $byteCount++
@@ -576,7 +573,7 @@ function Get-MaxValueForByteCount {
         [int]$ByteCount
     )
 
-    $value = [BigInteger]::One
+    $value = [System.Numerics.BigInteger]::One
     for ($i = 0; $i -lt $ByteCount; $i++) {
         $value *= 256
     }
@@ -590,7 +587,7 @@ function Get-Entropy {
         [byte[]]$Seed,
 
         [Parameter(Mandatory)]
-        [Queue[byte]]$Buffer,
+        [System.Collections.Generic.Queue[byte]]$Buffer,
 
         [Parameter(Mandatory)]
         [ref]$Counter,
@@ -637,10 +634,10 @@ function Convert-BytesToBigInteger {
 
     process {
         if (-not $Bytes) {
-            return [BigInteger]::Zero
+            return [System.Numerics.BigInteger]::Zero
         }
 
-        $result = [BigInteger]::Zero
+        $result = [System.Numerics.BigInteger]::Zero
         foreach ($byteValue in $Bytes) {
             $result = ($result * 256) + $byteValue
         }
