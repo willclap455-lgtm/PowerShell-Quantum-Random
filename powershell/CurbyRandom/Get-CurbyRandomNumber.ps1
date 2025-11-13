@@ -109,12 +109,18 @@ function Get-CurbyRandomNumber {
         $candidate = [BigInteger]::Zero
 
         while ($true) {
-            $entropyBytes = Get-Entropy -Seed $seed -Buffer $state.Buffer -Counter $state.Counter -ByteCount $byteCount
+            $entropyBytesRaw = Get-Entropy -Seed $seed -Buffer $state.Buffer -Counter $state.Counter -ByteCount $byteCount
 
-            if (-not $entropyBytes -or $entropyBytes.Length -eq 0) {
+            if ($null -eq $entropyBytesRaw) {
                 throw 'Unable to derive entropy bytes for random candidate.'
             }
 
+            $entropyByteCollection = @($entropyBytesRaw)
+            if ($entropyByteCollection.Count -eq 0) {
+                throw 'Unable to derive entropy bytes for random candidate.'
+            }
+
+            $entropyBytes = [byte[]]$entropyByteCollection
             $candidate = Convert-BytesToBigInteger -Bytes $entropyBytes
 
             if ($candidate -lt $threshold) {
@@ -167,6 +173,75 @@ function Resolve-Output {
     }
 }
 
+function Get-CurbyNestedValue {
+    [CmdletBinding()]
+    param(
+        [AllowNull()]
+        [object]$InputObject,
+
+        [Parameter(Mandatory)]
+        [string[]]$PropertyPath
+    )
+
+    if (-not $InputObject) {
+        return $null
+    }
+
+    if (-not $PropertyPath -or $PropertyPath.Count -eq 0) {
+        throw [System.ArgumentException]::new('PropertyPath must include at least one segment.', 'PropertyPath')
+    }
+
+    $current = $InputObject
+    foreach ($segment in $PropertyPath) {
+        if (-not $current) {
+            return $null
+        }
+
+        $found = $false
+        $nextValue = $null
+
+        if ($current -is [System.Collections.IDictionary]) {
+            foreach ($key in $current.Keys) {
+                if ($key -eq $segment) {
+                    $nextValue = $current[$key]
+                    $found = $true
+                    break
+                }
+            }
+        }
+
+        if (-not $found) {
+            $psObject = $current.PSObject
+            if ($psObject) {
+                $property = $psObject.Properties[$segment]
+                if ($property) {
+                    $nextValue = $property.Value
+                    $found = $true
+                }
+            }
+        }
+
+        if (-not $found) {
+            try {
+                $propertyInfo = $current.GetType().GetProperty($segment)
+                if ($propertyInfo) {
+                    $nextValue = $propertyInfo.GetValue($current)
+                    $found = $true
+                }
+            } catch {
+            }
+        }
+
+        if (-not $found) {
+            return $null
+        }
+
+        $current = $nextValue
+    }
+
+    return $current
+}
+
 function Get-CurbySeed {
     [CmdletBinding()]
     param(
@@ -204,48 +279,54 @@ function Get-CurbySeed {
     for ($i = 0; $i -lt $limit; $i++) {
         $pulse = $pulses[$i]
 
-        $payload = $pulse.data.content.payload
+        $payload = Get-CurbyNestedValue -InputObject $pulse -PropertyPath @('data', 'content', 'payload')
         if (-not $payload) {
             throw 'CURBy response did not include a payload.'
         }
 
-        $saltWrapper = $payload.salt.'/'
+        $saltWrapper = Get-CurbyNestedValue -InputObject $payload -PropertyPath @('salt', '/')
         if (-not $saltWrapper) {
             throw 'CURBy payload did not include a salt value.'
         }
 
-        $saltBase64 = $saltWrapper.bytes
+        $saltBase64 = Get-CurbyNestedValue -InputObject $saltWrapper -PropertyPath @('bytes')
+        if (-not $saltBase64) {
+            throw 'CURBy payload did not include salt bytes.'
+        }
+
         $saltBytes = Convert-FromBase64Unpadded -Value $saltBase64
 
-        $timestamp = [datetime]::Parse($payload.timestamp).ToUniversalTime()
-        $index = [long]$pulse.data.content.index
+        $timestampString = Get-CurbyNestedValue -InputObject $payload -PropertyPath @('timestamp')
+        if (-not $timestampString) {
+            throw 'CURBy payload did not include a timestamp.'
+        }
+        $timestamp = [datetime]::Parse($timestampString).ToUniversalTime()
+
+        $indexValue = Get-CurbyNestedValue -InputObject $pulse -PropertyPath @('data', 'content', 'index')
+        if ($null -eq $indexValue) {
+            throw 'CURBy payload did not include a pulse index.'
+        }
+        $index = [long]$indexValue
 
         $chainCid = $null
-        $chainCidRaw = $pulse.data.chainCid
-        if ($chainCidRaw) {
-            if ($chainCidRaw -is [string]) {
-                $chainCid = $chainCidRaw
-            } else {
-                $chainCidProperty = $chainCidRaw.PSObject.Properties['/']
-                if ($chainCidProperty -and $chainCidProperty.Value) {
-                    $chainCid = [string]$chainCidProperty.Value
-                }
+        $chainCidCandidates = @(
+            Get-CurbyNestedValue -InputObject $pulse -PropertyPath @('data', 'chainCid'),
+            Get-CurbyNestedValue -InputObject $pulse -PropertyPath @('data', 'content', 'chainCid'),
+            Get-CurbyNestedValue -InputObject $pulse -PropertyPath @('data', 'content', 'chain')
+        )
+
+        foreach ($candidate in $chainCidCandidates) {
+            $resolvedCandidate = Resolve-CurbyCidValue -Value $candidate
+            if ($resolvedCandidate) {
+                $chainCid = $resolvedCandidate
+                break
             }
         }
 
         if (-not $chainCid) {
-            $pulseCidRaw = $pulse.cid
-            if ($pulseCidRaw) {
-                if ($pulseCidRaw -is [string]) {
-                    $chainCid = $pulseCidRaw
-                } else {
-                    $pulseCidProperty = $pulseCidRaw.PSObject.Properties['/']
-                    if ($pulseCidProperty -and $pulseCidProperty.Value) {
-                        $chainCid = [string]$pulseCidProperty.Value
-                    } else {
-                        $chainCid = $pulseCidRaw.ToString()
-                    }
-                }
+            $pulseCidCandidate = Resolve-CurbyCidValue -Value (Get-CurbyNestedValue -InputObject $pulse -PropertyPath @('cid'))
+            if ($pulseCidCandidate) {
+                $chainCid = $pulseCidCandidate
             }
         }
 
@@ -277,6 +358,17 @@ function Resolve-CurbyCidValue {
 
     if ($Value -is [string]) {
         return $Value
+    }
+
+    if ($Value -is [System.Collections.IDictionary]) {
+        foreach ($key in $Value.Keys) {
+            if ($key -eq '/') {
+                $slashValue = $Value[$key]
+                if ($slashValue) {
+                    return [string]$slashValue
+                }
+            }
+        }
     }
 
     $slashProperty = $Value.PSObject.Properties['/']
