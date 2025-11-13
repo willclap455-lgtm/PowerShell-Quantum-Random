@@ -65,7 +65,7 @@ function Get-CurbyRandomNumber {
     foreach ($seedInfo in $seedInfos) {
         $seedStates.Add([pscustomobject]@{
                 Info    = $seedInfo
-                Buffer  = [List[byte]]::new()
+                Buffer  = [Queue[byte]]::new()
                 Counter = [ref]([UInt64]0)
             })
     }
@@ -494,8 +494,7 @@ function Get-Entropy {
         [byte[]]$Seed,
 
         [Parameter(Mandatory)]
-        [AllowEmptyCollection()]
-        [List[byte]]$Buffer,
+        [Queue[byte]]$Buffer,
 
         [Parameter(Mandatory)]
         [ref]$Counter,
@@ -503,6 +502,10 @@ function Get-Entropy {
         [Parameter(Mandatory)]
         [int]$ByteCount
     )
+
+    if ($ByteCount -le 0) {
+        throw [System.ArgumentOutOfRangeException]::new('ByteCount', $ByteCount, 'ByteCount must be greater than zero.')
+    }
 
     while ($Buffer.Count -lt $ByteCount) {
         $counterBytes = [System.BitConverter]::GetBytes([UInt64]$Counter.Value)
@@ -515,13 +518,18 @@ function Get-Entropy {
         [System.Buffer]::BlockCopy($counterBytes, 0, $input, $Seed.Length, $counterBytes.Length)
 
         $hash = [System.Security.Cryptography.SHA512]::HashData($input)
-        $Buffer.AddRange($hash)
+        foreach ($byteValue in $hash) {
+            $Buffer.Enqueue($byteValue)
+        }
         $Counter.Value++
     }
 
-    $segment = $Buffer.GetRange(0, $ByteCount)
-    $Buffer.RemoveRange(0, $ByteCount)
-    return $segment.ToArray()
+    $result = [byte[]]::new($ByteCount)
+    for ($i = 0; $i -lt $ByteCount; $i++) {
+        $result[$i] = $Buffer.Dequeue()
+    }
+
+    return $result
 }
 
 function Convert-BytesToBigInteger {
