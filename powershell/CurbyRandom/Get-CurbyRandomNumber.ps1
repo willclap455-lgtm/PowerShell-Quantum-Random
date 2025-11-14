@@ -284,17 +284,15 @@ function Get-CurbySeed {
             throw 'CURBy response did not include a payload.'
         }
 
-        $saltWrapper = Get-CurbyNestedValue -InputObject $payload -PropertyPath @('salt', '/')
-        if (-not $saltWrapper) {
+        $saltNode = Get-CurbyNestedValue -InputObject $payload -PropertyPath @('salt')
+        if (-not $saltNode) {
             throw 'CURBy payload did not include a salt value.'
         }
 
-        $saltBase64 = Get-CurbyNestedValue -InputObject $saltWrapper -PropertyPath @('bytes')
-        if (-not $saltBase64) {
+        $saltBytes = [byte[]](Resolve-CurbySaltBytes -Value $saltNode)
+        if (-not $saltBytes) {
             throw 'CURBy payload did not include salt bytes.'
         }
-
-        $saltBytes = Convert-FromBase64Unpadded -Value $saltBase64
 
         $timestampString = Get-CurbyNestedValue -InputObject $payload -PropertyPath @('timestamp')
         if (-not $timestampString) {
@@ -377,6 +375,112 @@ function Resolve-CurbyCidValue {
     }
 
     return $Value.ToString()
+}
+
+function Resolve-CurbySaltBytes {
+    [CmdletBinding()]
+    param(
+        [AllowNull()]
+        [object]$Value
+    )
+
+    if (-not $Value) {
+        return $null
+    }
+
+    if ($Value -is [byte[]]) {
+        if ($Value.Length -gt 0) {
+            return [byte[]]$Value
+        }
+
+        return $null
+    }
+
+    $queue = [System.Collections.Queue]::new()
+    $queue.Enqueue([PSCustomObject]@{
+            Value = $Value
+            Hint  = $null
+        })
+
+    while ($queue.Count -gt 0) {
+        $entry = $queue.Dequeue()
+        $current = $entry.Value
+        $hint = if ($entry.PSObject.Properties['Hint']) { [string]$entry.Hint } else { $null }
+
+        if (-not $current) {
+            continue
+        }
+
+        if ($current -is [byte[]]) {
+            if ($current.Length -gt 0) {
+                return [byte[]]$current
+            }
+
+            continue
+        }
+
+        if ($current -is [string]) {
+            $shouldAttemptDecode = $false
+            if ($null -eq $hint -or $hint.Length -eq 0) {
+                $shouldAttemptDecode = $true
+            } elseif ($hint -eq 'bytes' -or $hint -eq 'salt' -or $hint -eq 'value') {
+                $shouldAttemptDecode = $true
+            }
+
+            if (-not $shouldAttemptDecode) {
+                continue
+            }
+
+            $candidate = $current.Trim()
+            if ($candidate.Length -eq 0) {
+                continue
+            }
+
+            try {
+                $decoded = Convert-FromBase64Unpadded -Value $candidate
+                if ($decoded -and $decoded.Length -gt 0) {
+                    return [byte[]]$decoded
+                }
+            } catch {
+            }
+
+            continue
+        }
+
+        $dictionary = $current -as [System.Collections.IDictionary]
+        if ($dictionary) {
+            foreach ($key in $dictionary.Keys) {
+                $queue.Enqueue([PSCustomObject]@{
+                        Value = $dictionary[$key]
+                        Hint  = [string]$key
+                    })
+            }
+            continue
+        }
+
+        $psObject = $current.PSObject
+        if ($psObject) {
+            foreach ($property in $psObject.Properties) {
+                $queue.Enqueue([PSCustomObject]@{
+                        Value = $property.Value
+                        Hint  = [string]$property.Name
+                    })
+            }
+            continue
+        }
+
+        $enumerable = $current -as [System.Collections.IEnumerable]
+        if ($enumerable -and -not ($current -is [string])) {
+            foreach ($item in $enumerable) {
+                $queue.Enqueue([PSCustomObject]@{
+                        Value = $item
+                        Hint  = $hint
+                    })
+            }
+        }
+    }
+
+    return $null
 }
 
 function Get-CurbyChainCatalog {
