@@ -62,9 +62,9 @@ Value PulseIndex Timestamp               ChainId
 
 ## How It Works
 
-- Calls `https://random.colorado.edu/api/chains/<CURBy-RNG-CID>/pulses?limit=1`
-  to fetch the latest randomness pulse.
-- Extracts the 64-byte salt payload, base64-decodes it, and uses it as high-quality entropy.
+- Calls `https://random.colorado.edu/api/chains/<CURBy-RNG-CID>/pulses`
+  to fetch recent randomness pulses, then samples one pulse for each value.
+- Extracts each selected 64-byte salt payload, base64-decodes it, and uses it as high-quality entropy.
 - Expands the entropy with SHA-512 and produces unbiased integers via rejection sampling.
 
 The default chain identifier corresponds to the CURBy RNG chain (version 1.0.x).
