@@ -4,8 +4,8 @@ Gets one or more random numbers sourced from the CURBy randomness beacon.
 
 .DESCRIPTION
 `Get-CurbyRandomNumber` calls the CURBy HTTP API and derives uniform random
-integers inside the requested range. The cmdlet fetches the latest CURBy RNG
-pulse, decodes its salt payload, and expands it with SHA-512 to obtain
+integers inside the requested range. The cmdlet samples recent CURBy RNG
+pulses, decodes their salt payloads, and expands them with SHA-512 to obtain
 enough entropy for the requested amount of numbers.
 
 .LINK
@@ -54,7 +54,7 @@ function Get-CurbyRandomNumber {
             $seedInfos = @(Select-RandomSeedsAcrossChains -BaseUri $normalisedBaseUri -Count $Count)
         }
     } else {
-        $seedInfos = @(Get-CurbySeed -BaseUri $normalisedBaseUri -ChainId $ChainId -Count $Count)
+        $seedInfos = @(Select-RandomSeedsFromSingleChain -BaseUri $normalisedBaseUri -ChainId $ChainId -Count $Count)
     }
 
     if (-not $seedInfos -or $seedInfos.Count -eq 0) {
@@ -575,7 +575,7 @@ function Select-RandomSeedsFromSingleChain {
     $selectedSeeds = [List[pscustomobject]]::new()
 
     for ($i = 0; $i -lt $Count; $i++) {
-        $randomIndex = Get-Random -Minimum 0 -Maximum $seedPool.Count
+        $randomIndex = Get-CurbyRandomIndex -MaxExclusive $seedPool.Count
         $selectedSeeds.Add($seedPool[$randomIndex])
     }
 
@@ -600,7 +600,7 @@ function Select-RandomSeedsAcrossChains {
 
     $selectedChainIds = [List[string]]::new()
     for ($i = 0; $i -lt $Count; $i++) {
-        $randomChainIndex = Get-Random -Minimum 0 -Maximum $chains.Count
+        $randomChainIndex = Get-CurbyRandomIndex -MaxExclusive $chains.Count
         $selectedChainIds.Add($chains[$randomChainIndex].ChainId)
     }
 
@@ -628,11 +628,22 @@ function Select-RandomSeedsAcrossChains {
     for ($i = 0; $i -lt $Count; $i++) {
         $chainId = $selectedChainIds[$i]
         $pool = $seedPools[$chainId]
-        $randomIndex = Get-Random -Minimum 0 -Maximum $pool.Count
+        $randomIndex = Get-CurbyRandomIndex -MaxExclusive $pool.Count
         $selectedSeeds.Add($pool[$randomIndex])
     }
 
     return $selectedSeeds
+}
+
+function Get-CurbyRandomIndex {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)]
+        [ValidateRange(1, [int]::MaxValue)]
+        [int]$MaxExclusive
+    )
+
+    return [System.Security.Cryptography.RandomNumberGenerator]::GetInt32($MaxExclusive)
 }
 
 function Convert-FromBase64Unpadded {
